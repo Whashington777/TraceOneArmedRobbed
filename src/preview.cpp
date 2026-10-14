@@ -1,0 +1,24 @@
+#include "menu.hpp"
+#include "imgui_impl_sdl2.h"
+#include "imgui_impl_sdlrenderer2.h"
+#include <SDL.h>
+#include <chrono>
+#include <fstream>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+static void Check(bool ok,const char* message){if(!ok)throw std::runtime_error(message);}
+int main(int argc,char** argv){
+ try{
+ bool test=false;std::string screenshot;int page=1,tab=0,language=-1;
+ for(int i=1;i<argc;++i){std::string arg=argv[i];if(arg=="--self-test")test=true;else if(arg=="--screenshot"&&i+1<argc)screenshot=argv[++i];else if(arg=="--page"&&i+1<argc)page=std::stoi(argv[++i]);else if(arg=="--tab"&&i+1<argc)tab=std::stoi(argv[++i]);else if(arg=="--language"&&i+1<argc){std::string value=argv[++i];if(value!="en"&&value!="ru")throw std::runtime_error("Language must be en or ru");language=value=="en"?1:0;}else throw std::runtime_error("Unknown argument");}
+ Check(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_TIMER)==0,SDL_GetError());auto* window=SDL_CreateWindow("TRACE / One-armed Robber",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1020,760,test?SDL_WINDOW_HIDDEN:SDL_WINDOW_SHOWN);Check(window,SDL_GetError());auto* renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);Check(renderer,SDL_GetError());
+ IMGUI_CHECKVERSION();ImGui::CreateContext();ImGui::GetIO().IniFilename=nullptr;ImGui_ImplSDL2_InitForSDLRenderer(window,renderer);ImGui_ImplSDLRenderer2_Init(renderer);
+ auto directory=test?std::filesystem::temp_directory_path()/("trace-menu-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())):std::filesystem::path("profiles");trace::Menu menu(directory);menu.InitializeFonts();menu.Navigate(page,tab);if(language>=0)menu.Set("ui.language",float(language));
+ if(test){Check(menu.Set("ui.language",1),"language set failed");Check(menu.Translate("Настройки")=="Settings","English translation failed");for(auto& setting:menu.Settings()){for(auto& text:{setting.label,setting.group,setting.unit}){auto translated=menu.Translate(text);for(unsigned char c:translated)Check(c!=0xd0&&c!=0xd1,"missing English translation");}for(auto& choice:setting.choices){auto translated=menu.Translate(choice);for(unsigned char c:translated)Check(c!=0xd0&&c!=0xd1,"missing choice translation");}}Check(menu.Save(),"language save failed");menu.Set("ui.language",0);Check(menu.Load("Default")&&menu.Get("ui.language")==1,"language profile round trip failed");Check(!menu.Set("ui.language",2),"invalid language accepted");menu.Set("ui.language",0);Check(menu.Translate("Настройки")=="Настройки","Russian translation failed");Check(menu.Set("aim.fov",28),"set failed");Check(menu.Dirty(),"dirty missing");Check(menu.Save(),"save failed");Check(!menu.Dirty(),"snapshot missing");Check(menu.Set("aim.fov",12),"set failed");Check(menu.Load("Default")&&menu.Get("aim.fov")==28,"round trip failed");Check(!menu.Set("aim.fov",999),"bounds failed");Check(!menu.CreateProfile("../escape"),"path validation failed");Check(menu.CreateProfile("Stealth"),"create failed");Check(menu.Load("Default"),"load failed");Check(menu.DeleteProfile("Stealth"),"delete failed");Check(!menu.DeleteProfile("Default"),"default deletion failed");std::ofstream f(directory/"broken.trace");f<<"TRACE_OAR_PROFILE 1\n\"aim.fov\" 999\n";f.close();Check(!menu.Load("broken")&&menu.Get("aim.fov")==28,"invalid profile rollback failed");menu.Reset();Check(menu.Get("aim.fov")==12&&menu.Dirty(),"reset failed");}
+ bool run=true;int frame=0;while(run){SDL_Event event;while(SDL_PollEvent(&event)){ImGui_ImplSDL2_ProcessEvent(&event);if(event.type==SDL_QUIT)run=false;}ImGui_ImplSDLRenderer2_NewFrame();ImGui_ImplSDL2_NewFrame();ImGui::NewFrame();if(test){menu.Set("ui.language",float(frame/15));menu.Navigate((frame%15)/3,frame%3);}float original_rounding=ImGui::GetStyle().FrameRounding;menu.Render();if(test)Check(ImGui::GetStyle().FrameRounding==original_rounding,"style restoration failed");ImGui::Render();if(test)Check(ImGui::GetDrawData()->TotalVtxCount>0,"empty menu frame");SDL_SetRenderDrawColor(renderer,16,17,20,255);SDL_RenderClear(renderer);ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(),renderer);
+ if(!screenshot.empty()&&frame==2){auto* surface=SDL_CreateRGBSurfaceWithFormat(0,1020,760,32,SDL_PIXELFORMAT_ARGB8888);Check(surface,"surface failed");Check(SDL_RenderReadPixels(renderer,nullptr,surface->format->format,surface->pixels,surface->pitch)==0,SDL_GetError());Check(SDL_SaveBMP(surface,screenshot.c_str())==0,SDL_GetError());SDL_FreeSurface(surface);run=false;}
+ SDL_RenderPresent(renderer);++frame;if(test&&frame==30)run=false;SDL_Delay(8);}
+ ImGui_ImplSDLRenderer2_Shutdown();ImGui_ImplSDL2_Shutdown();ImGui::DestroyContext();SDL_DestroyRenderer(renderer);SDL_DestroyWindow(window);SDL_Quit();if(test){std::filesystem::remove_all(directory);std::cout<<"Profile round trip, validation, rollback and all menu pages in RU/EN passed\n";}return 0;
+ }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+}

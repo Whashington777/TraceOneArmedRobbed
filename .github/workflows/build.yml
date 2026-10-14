@@ -1,0 +1,13 @@
+name: build
+on: [push, pull_request]
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libsdl2-dev lua5.4 mingw-w64
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build -j 4
+      - run: ctest --test-dir build --output-on-failure
+      - run: cmake -S . -B build-win64 -DCMAKE_TOOLCHAIN_FILE=tools/cmake/mingw64.cmake -DTRACE_BUILD_PREVIEW=OFF -DTRACE_BUILD_RUNTIME=ON -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build-win64 -j 4
